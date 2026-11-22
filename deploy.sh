@@ -185,7 +185,10 @@ if [ "$NEW_ENV" -eq 1 ] || [ "$INTERACTIVE" -eq 1 ]; then
   fi
   # Liste blanche par défaut : les hôtes des URL saisies.
   hosts="$(for v in LLM_BASE_URL EMBEDDING_BASE_URL RERANKER_BASE_URL VISION_BASE_URL; do
-             u="$(get_env "$v")"; [ -n "$u" ] && host_of "$u" && echo; done | sort -u | paste -sd, -)"
+             [ "$v" = RERANKER_BASE_URL ] && [ "$(get_env RERANKER_API)" = "none" ] && continue
+             u="$(get_env "$v")"
+             if [ -n "$u" ]; then host_of "$u"; echo; fi
+           done | sort -u | paste -sd, -)" || hosts=""
   current_hosts="$(get_env AI_ALLOWED_HOSTS)"
   if [ -z "${AI_ALLOWED_HOSTS:-}" ] && { [ "$NEW_ENV" -eq 1 ] || [ -z "$current_hosts" ]; }; then
     set_env AI_ALLOWED_HOSTS "$hosts"
