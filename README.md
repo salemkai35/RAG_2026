@@ -1,8 +1,17 @@
 # Contrats RAG – IAP / Département Études & Projets
 
-> 📐 Architecture complète et déploiement rapide : [ARCHITECTURE.md](ARCHITECTURE.md) ·
-> copie et déploiement pas à pas sur Ubuntu : [DEPLOIEMENT_UBUNTU.md](DEPLOIEMENT_UBUNTU.md) ·
-> référence complète : [GUIDE_DEPLOIEMENT.md](GUIDE_DEPLOIEMENT.md)
+> 🚀 **Déploiement depuis GitHub** : `git clone … && sudo ./deploy.sh` (voir
+> [DEPLOIEMENT_GIT.md](DEPLOIEMENT_GIT.md)) ·
+> 📐 architecture : [ARCHITECTURE.md](ARCHITECTURE.md) ·
+> copie par archive, HTTPS, pare-feu : [DEPLOIEMENT_UBUNTU.md](DEPLOIEMENT_UBUNTU.md) ·
+> référence de `.env` : [GUIDE_DEPLOIEMENT.md](GUIDE_DEPLOIEMENT.md)
+
+## Démarrage rapide (serveur Ubuntu vierge)
+
+```bash
+git clone <url-du-depot-prive> /opt/contrats-rag && cd /opt/contrats-rag
+sudo ./deploy.sh        # installe Docker, crée .env et ses secrets, demande les API des modèles, démarre tout
+```
 
 Solution locale d'exploitation des contrats de travaux : recherche hybride, consultation et
 analyse, avec sources vérifiables. Elle est construite sur **Open WebUI** (version épinglée,
@@ -118,6 +127,9 @@ src/contract_rag/
   owui/                       SEUL module lié à Open WebUI (adaptateurs, déploiement)
   cli.py                      commande contract-rag
 owui_extensions/              Tools, Function filtre et prompts publiés dans Open WebUI (code minimal)
+deploy.sh                     déploiement en une commande (serveur Ubuntu/Debian vierge)
+.githooks/                    garde-fous Git : aucun secret ni document dans un commit ou un push
+DEPLOIEMENT_GIT.md            GitHub privé, commits automatiques, git clone + deploy.sh
 ARCHITECTURE.md               architecture complète et déploiement rapide ailleurs
 GUIDE_DEPLOIEMENT.md          copie complète du projet et déploiement sur un autre serveur
 tests/                        tests unitaires (sans base, sans modèle)

@@ -35,6 +35,10 @@ Cette procédure a été exécutée avec succès sur Ubuntu 24.04 (voir GUIDE_DE
 
 ## 0. Choisir son cas
 
+> **Méthode la plus simple** : si le projet est sur GitHub, `git clone` puis `sudo ./deploy.sh`
+> font automatiquement les §1 à §6. Voir [DEPLOIEMENT_GIT.md](DEPLOIEMENT_GIT.md).
+> Ce document décrit la méthode manuelle par copie d'archive, et les réglages de production.
+
 | Votre situation | Suivez |
 |---|---|
 | Nouveau serveur **avec** accès Internet (ou miroir Docker interne) | §1 → §10 |
