@@ -321,7 +321,30 @@ Les images sont chargées depuis `images/` au lieu d'être construites. Voir
 
 ---
 
-## 8. Dépannage
+## 8. Test de la procédure (22/11/2026)
+
+Exécuté sur Ubuntu 24.04 (WSL2, Docker 29.1.3), dans une instance isolée
+(`COMPOSE_PROJECT_NAME=gittest`, port 3002), à côté de l'installation existante, qui n'a pas
+été touchée.
+
+| # | Test | Résultat |
+|---|---|---|
+| 1 | `git clone` du dépôt : 82 fichiers, pas de `.env`, scripts exécutables (`rwxr-xr-x`), fins de ligne LF | ✅ |
+| 2 | `./deploy.sh --non-interactive` : système, prérequis, `.env` et secrets générés, droits `600` | ✅ (un arrêt silencieux sur la liste blanche a été corrigé grâce à ce test) |
+| 3 | Construction des images, réseau `gittest_default`, PostgreSQL, migration `001`, Open WebUI | ✅ en 2 min 51 |
+| 4 | Contrôles : base, stockage, LLM, embeddings (dimension 768), reranker, OCR | ✅ 6/6 |
+| 5 | Interface sur le port 3002 | ✅ HTTP 200 |
+| 6 | Relance de `deploy.sh` : `.env` conservé à l'identique, migrations « à jour », tout vert | ✅ idempotent |
+| 7 | `git status` du clone après le déploiement : vide (`.env`, `data/` et `inbox/` ignorés) | ✅ |
+| 8 | Instance existante (port 3000) pendant et après le test | ✅ HTTP 200, données intactes |
+| 9 | Garde-fous : commit d'un mot de passe, puis d'un `.pdf` forcé → refusés ; push d'un commit fait avec `--no-verify` → refusé, rien n'est envoyé | ✅ |
+| 10 | Commit automatique : message généré (domaines, liste des fichiers), modifications d'espaces ignorées, protection contre les boucles du hook | ✅ |
+
+L'instance de test, son réseau, ses volumes et ses images ont été supprimés après le test.
+
+---
+
+## 9. Dépannage
 
 | Symptôme | Solution |
 |---|---|

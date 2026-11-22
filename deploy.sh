@@ -242,7 +242,7 @@ echo
 ok "Déploiement terminé."
 echo "    Interface      : $(get_env WEBUI_URL)"
 echo "    Configuration  : $PROJECT_DIR/.env (secrets : ne jamais le versionner)"
-echo "    Étapes suivantes (DEPLOIEMENT_GIT.md §5) :"
+echo "    Étapes suivantes (DEPLOIEMENT_GIT.md §4.5) :"
 echo "      1. créer le compte administrateur dans l'interface, puis ENABLE_SIGNUP=false"
 echo "      2. publier les extensions : make deploy-tools KEY=sk-…"
 echo "      3. créer le modèle « Assistant Contrats » avec le filtre « RAG forcé »"
