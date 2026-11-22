@@ -198,6 +198,19 @@ if [ "$NEW_ENV" -eq 1 ] || [ "$INTERACTIVE" -eq 1 ]; then
   ask WEBUI_URL          "Adresse de l'interface pour les utilisateurs"
 fi
 
+# Autres réglages repris de l'environnement s'ils y sont définis (utile en mode automatique).
+for v in COMPOSE_PROJECT_NAME APP_VERSION OWUI_BIND INBOX_DIR TZ OCR_ENGINE OCR_LANGUAGES \
+         EMBEDDING_QUERY_PREFIX EMBEDDING_DOCUMENT_PREFIX DEFAULT_CONTRACT_ACCESS ENABLE_SIGNUP \
+         VISION_BASE_URL VISION_MODEL; do
+  [ -n "${!v:-}" ] && set_env "$v" "${!v}"
+done
+if [ "$INTERACTIVE" -eq 0 ] && [ "$NEW_ENV" -eq 0 ] && [ -z "$ENV_SOURCE" ]; then
+  for v in LLM_BASE_URL LLM_MODEL LLM_API_KEY EMBEDDING_BASE_URL EMBEDDING_MODEL EMBEDDING_DIM \
+           RERANKER_API RERANKER_BASE_URL RERANKER_MODEL AI_ALLOWED_HOSTS OWUI_PORT DATA_ROOT WEBUI_URL; do
+    [ -n "${!v:-}" ] && set_env "$v" "${!v}"
+  done
+fi
+
 # Contrôles de cohérence avant de lancer quoi que ce soit.
 grep -q '=change-me$' .env && die "Des secrets valent encore 'change-me' dans .env."
 grep -Eq '^(LLM|EMBEDDING)_BASE_URL=.*interne\.local' .env \
