@@ -1,0 +1,23 @@
+# Rien de secret ni de volumineux dans le contexte de construction des images.
+.git
+.githooks
+.claude
+.venv
+.env
+.env.*
+*.env
+data
+inbox
+exports
+backups
+dist
+images
+models
+tests
+**/__pycache__
+**/*.pyc
+.pytest_cache
+**/*.egg-info
+*.log
+*.key
+*.pem

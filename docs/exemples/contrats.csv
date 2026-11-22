@@ -1,0 +1,2 @@
+reference;intitule;objet;titulaire;maitre_ouvrage;devise;montant_initial_ht;taux_tva;montant_initial_ttc;date_signature;date_notification;date_ods_demarrage;delai_execution_jours;delai_execution_mois;statut
+EXEMPLE-2023-001;Contrat fictif de démonstration;Travaux fictifs servant à tester l'import;ENTREPRISE FICTIVE SARL;IAP;DZD;125 000 000,00;19;148 750 000,00;12/03/2023;20/03/2023;02/04/2023;240;;en cours

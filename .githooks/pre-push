@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Avant chaque « git push » (toujours lancé par vous, jamais automatiquement) :
+# rejoue le contrôle anti-secrets sur tout ce qui va être envoyé.
+# =============================================================================
+set -uo pipefail
+zero=0000000000000000000000000000000000000000
+empty_tree=$(git hash-object -t tree /dev/null)
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue                 # suppression de branche distante
+  if [ "$remote_sha" = "$zero" ]; then
+    base="$empty_tree"                                   # nouvelle branche : tout son contenu
+  else
+    base="$remote_sha"
+  fi
+  SCAN_RANGE="$base $local_sha" "$(dirname "$0")/pre-commit" || {
+    echo "Push refusé ($local_ref) : contenu sensible détecté. Rien n'a été envoyé." >&2
+    exit 1
+  }
+done
+exit 0

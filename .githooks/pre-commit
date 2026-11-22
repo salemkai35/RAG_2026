@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Garde-fou Git : refuse un commit qui contiendrait un secret ou des données.
+# Activé par : git config core.hooksPath .githooks   (fait par scripts/git-setup.sh)
+# Contrôle aussi exécuté avant chaque push (.githooks/pre-push).
+# =============================================================================
+set -uo pipefail
+exec 1>&2
+
+# Mode « plage » utilisé par pre-push : SCAN_RANGE="<base> <tete>"
+if [ -n "${SCAN_RANGE:-}" ]; then
+  # shellcheck disable=SC2086  # deux révisions séparées par un espace
+  files=$(git diff --name-only --diff-filter=ACMR $SCAN_RANGE)
+  added=$(git diff -U0 $SCAN_RANGE | grep -E '^\+[^+]' || true)
+else
+  files=$(git diff --cached --name-only --diff-filter=ACMR)
+  added=$(git diff --cached -U0 | grep -E '^\+[^+]' || true)
+fi
+[ -z "$files" ] && exit 0
+
+fail=0
+block() { printf '\033[1;31m✘ BLOQUÉ\033[0m %s\n' "$*"; fail=1; }
+
+# 1. Fichiers interdits (même ajoutés avec git add -f).
+while IFS= read -r f; do
+  case "$f" in
+    .env.example|inbox/README.md|certs/README.md) continue ;;
+    .env|.env.*|*.env|*/.env|.test-admin*)               block "fichier de configuration secrète : $f" ;;
+    data/*|backups/*|exports/*|dist/*|images/*|models/*) block "données / sauvegardes / images / modèles : $f" ;;
+    inbox/*|certs/*)                                     block "document ou certificat local : $f" ;;
+    *.pdf|*.doc|*.docx|*.xls|*.xlsx|*.xlsm|*.odt|*.ods|*.tif|*.tiff|*.msg|*.eml)
+                                                         block "document (contrat ?) : $f" ;;
+    *.dump|*.backup|*.bak|*.sqlite|*.sqlite3|*.db|*.sql.gz|*.faiss|*.index)
+                                                         block "base de données / index vectoriel : $f" ;;
+    *.gguf|*.ggml|*.safetensors|*.onnx|*.pt|*.pth|*.ckpt|*.bin)
+                                                         block "modèle d'IA : $f" ;;
+    *.key|*.pem|*.p12|*.pfx|*.jks|id_rsa*|id_ed25519*)  block "clé privée / certificat : $f" ;;
+  esac
+  if [ -f "$f" ]; then
+    size=$(wc -c < "$f" 2>/dev/null || echo 0)
+    [ "$size" -gt 5242880 ] && block "fichier de plus de 5 Mo : $f ($((size / 1048576)) Mo)"
+  fi
+done <<< "$files"
+
+# 2. Contenu : secrets dans les lignes ajoutées.
+check() {  # check "description" "regex"
+  local hits
+  hits=$(printf '%s\n' "$added" | grep -E -- "$2" | grep -Ev 'change-me|example|exemple|xxxx|<[^>]*>' | head -3)
+  [ -n "$hits" ] && block "$1 :" && printf '      %s\n' "$(printf '%s' "$hits" | cut -c1-80)"
+}
+check "clé API (sk-…)"            'sk-[A-Za-z0-9_-]{20,}'
+check "jeton GitHub"              '(ghp|gho|ghs|ghu)_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}'
+check "clé AWS"                   'AKIA[0-9A-Z]{16}'
+check "clé privée"                '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+check "mot de passe / secret en clair" \
+  '(PASSWORD|PASSWD|SECRET|SECRET_KEY|API_KEY|TOKEN)[A-Z_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_.@-]{16,}'
+check "URL avec identifiants"     '[a-z]+://[^/:@[:space:]]+:[^/@[:space:]$]{6,}@'
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "Commit refusé : retirez ces éléments (git restore --staged <fichier>, ou git rm --cached <fichier> avant le 1er commit) ou corrigez le contenu."
+  echo "Les secrets vont dans .env (jamais versionné), les documents dans inbox/ ou DATA_ROOT."
+  exit 1
+fi
+exit 0

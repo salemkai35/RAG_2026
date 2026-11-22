@@ -1,0 +1,134 @@
+# Contrats RAG – pile complète.
+#   docker compose up -d                       -> PostgreSQL + Open WebUI
+#   docker compose run --rm ingest <commande>  -> CLI métier (ingestion, migrations, contrôles)
+# Toute la configuration vient du fichier .env (voir .env.example).
+
+name: contrats-rag
+
+x-crag-models: &crag-models
+  CRAG_STORAGE_ROOT: /data/contrats
+  CRAG_LLM_BASE_URL: ${LLM_BASE_URL:-}
+  CRAG_LLM_API_KEY: ${LLM_API_KEY:-}
+  CRAG_LLM_MODEL: ${LLM_MODEL:-}
+  CRAG_EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+  CRAG_EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+  CRAG_EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+  CRAG_EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+  CRAG_EMBEDDING_QUERY_PREFIX: ${EMBEDDING_QUERY_PREFIX:-}
+  CRAG_EMBEDDING_DOCUMENT_PREFIX: ${EMBEDDING_DOCUMENT_PREFIX:-}
+  CRAG_RERANKER_API: ${RERANKER_API:-none}
+  CRAG_RERANKER_BASE_URL: ${RERANKER_BASE_URL:-}
+  CRAG_RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+  CRAG_RERANKER_MODEL: ${RERANKER_MODEL:-}
+  CRAG_OCR_ENGINE: ${OCR_ENGINE:-tesseract}
+  CRAG_OCR_LANGUAGES: ${OCR_LANGUAGES:-fra+eng}
+  CRAG_VISION_BASE_URL: ${VISION_BASE_URL:-}
+  CRAG_VISION_API_KEY: ${VISION_API_KEY:-}
+  CRAG_VISION_MODEL: ${VISION_MODEL:-}
+  CRAG_ALLOWED_HOSTS: ${AI_ALLOWED_HOSTS:-}
+  CRAG_VERIFY_TLS: ${AI_VERIFY_TLS:-true}
+  CRAG_DEFAULT_ACCESS: ${DEFAULT_CONTRACT_ACCESS:-none}
+  CRAG_CHUNK_MAX_CHARS: ${CHUNK_MAX_CHARS:-1800}
+  CRAG_CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-200}
+  CRAG_RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-8}
+  CRAG_RETRIEVAL_CANDIDATES: ${RETRIEVAL_CANDIDATES:-40}
+  TZ: ${TZ:-UTC}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:0.8.0-pg17}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?définir POSTGRES_SUPERUSER_PASSWORD}
+      OWUI_DB_PASSWORD: ${OWUI_DB_PASSWORD:?définir OWUI_DB_PASSWORD}
+      CONTRATS_INGEST_PASSWORD: ${CONTRATS_INGEST_PASSWORD:?définir CONTRATS_INGEST_PASSWORD}
+      CONTRATS_APP_PASSWORD: ${CONTRATS_APP_PASSWORD:?définir CONTRATS_APP_PASSWORD}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Via TCP : le serveur temporaire d'initialisation n'écoute pas en TCP,
+      # le service n'est donc « healthy » qu'une fois l'init terminée.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d contrats"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Pas de port publié : PostgreSQL n'est joignable que depuis les conteneurs.
+
+  open-webui:
+    image: contrats-rag/open-webui:${APP_VERSION:-0.1.0}
+    build:
+      context: .
+      dockerfile: docker/openwebui.Dockerfile
+      args:
+        OWUI_VERSION: ${OWUI_VERSION:-v0.13.4}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${OWUI_BIND:-0.0.0.0}:${OWUI_PORT:-3000}:8080"
+    volumes:
+      - ${DATA_ROOT:-./data}/open-webui:/app/backend/data
+      - ${DATA_ROOT:-./data}/contrats:/data/contrats
+    environment:
+      <<: *crag-models
+      # --- Accès de la logique métier (Tools) à la base "contrats" ---
+      CRAG_DATABASE_URL: postgresql://contrats_app:${CONTRATS_APP_PASSWORD}@postgres:5432/contrats
+      # --- Base applicative et vecteurs du RAG natif Open WebUI ---
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?définir WEBUI_SECRET_KEY}
+      DATABASE_URL: postgresql://owui:${OWUI_DB_PASSWORD}@postgres:5432/openwebui
+      VECTOR_DB: pgvector
+      PGVECTOR_DB_URL: postgresql://owui:${OWUI_DB_PASSWORD}@postgres:5432/openwebui
+      PGVECTOR_INITIALIZE_MAX_VECTOR_LENGTH: ${EMBEDDING_DIM:-1024}
+      # --- Modèles internes (connexion OpenAI-compatible) ---
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: ${LLM_BASE_URL:-}
+      OPENAI_API_KEY: ${LLM_API_KEY:-}
+      RAG_EMBEDDING_ENGINE: openai
+      RAG_OPENAI_API_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      RAG_OPENAI_API_KEY: ${EMBEDDING_API_KEY:-}
+      RAG_EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      RAG_RERANKING_ENGINE: ${OWUI_RERANKING_ENGINE:-}
+      RAG_EXTERNAL_RERANKER_URL: ${OWUI_EXTERNAL_RERANKER_URL:-}
+      RAG_EXTERNAL_RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+      RAG_RERANKING_MODEL: ${OWUI_RERANKING_MODEL:-}
+      # --- Fonctionnement hors Internet / pas de télémétrie ---
+      OFFLINE_MODE: "true"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      ENABLE_VERSION_UPDATE_CHECK: "false"
+      ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS: "false"
+      ANONYMIZED_TELEMETRY: "false"
+      DO_NOT_TRACK: "true"
+      SCARF_NO_ANALYTICS: "true"
+      ENABLE_WEB_SEARCH: "false"
+      ENABLE_COMMUNITY_SHARING: "false"
+      # --- Adresse publique (CORS) ---
+      WEBUI_URL: ${WEBUI_URL:-}
+      CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN:-*}
+      # --- Comptes ---
+      ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
+      DEFAULT_USER_ROLE: ${DEFAULT_USER_ROLE:-pending}
+
+  ingest:
+    image: contrats-rag/ingest:${APP_VERSION:-0.1.0}
+    build:
+      context: .
+      dockerfile: docker/ingest.Dockerfile
+    profiles: ["cli"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ${DATA_ROOT:-./data}/contrats:/data/contrats
+      - ${INBOX_DIR:-./inbox}:/inbox:ro
+      - ./exports:/exports
+    environment:
+      <<: *crag-models
+      # Rôle propriétaire du schéma métier : migrations et écritures d'ingestion.
+      CRAG_DATABASE_URL: postgresql://contrats_ingest:${CONTRATS_INGEST_PASSWORD}@postgres:5432/contrats
+      OWUI_INTERNAL_URL: http://open-webui:8080

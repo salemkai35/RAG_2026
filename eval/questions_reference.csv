@@ -1,0 +1,6 @@
+id;question;reference_contrat;reponse_attendue;source_attendue;type
+Q01;Quel est le montant initial HT du contrat ?;EXEMPLE-2023-001;125 000 000,00 DZD;Contrat p. ?, Article ?;extraction
+Q02;Quelles sont les pénalités de retard prévues ?;EXEMPLE-2023-001;;Article pénalités;recherche
+Q03;Combien d'avenants ont été signés et quelle est l'évolution du montant ?;EXEMPLE-2023-001;;Avenants n°1..n;calcul
+Q04;La réception provisoire a-t-elle été prononcée avec réserves ?;EXEMPLE-2023-001;;PV réception provisoire;recherche
+Q05;Quel est le délai d'exécution prolongé ?;EXEMPLE-2023-001;;ODS / avenants;calcul

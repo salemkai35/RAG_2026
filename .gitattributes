@@ -1,0 +1,23 @@
+# Fins de ligne Unix pour tout ce qui est exécuté ou lu sous Linux,
+# même si le dépôt est modifié depuis Windows.
+* text=auto eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.csv text eol=lf
+*.Dockerfile text eol=lf
+Makefile text eol=lf
+.env.example text eol=lf
+.githooks/* text eol=lf
+
+# Binaires (jamais convertis ; de toute façon exclus par .gitignore)
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.gz binary
