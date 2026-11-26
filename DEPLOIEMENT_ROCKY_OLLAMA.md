@@ -239,29 +239,38 @@ curl -s http://172.21.36.55:11434/api/tags | python3 -m json.tool | grep '"name"
 Si ces commandes échouent, ne pas aller plus loin. Vérifier le pare-feu Windows,
 `OLLAMA_HOST` et le routage entre `172.21.99.0` et `172.21.36.0`.
 
-### 5.3 Serveur Rocky : cloner et déployer
+### 5.3 Serveur Rocky : cloner et déployer (deux commandes)
 ```bash
-sudo mkdir -p /opt/contrats-rag && sudo chown $USER: /opt/contrats-rag
-git clone https://github.com/salemkai35/RAG_2026.git /opt/contrats-rag      # ou clé de déploiement (DEPLOIEMENT_GIT.md §4.2)
-cd /opt/contrats-rag
+sudo git clone https://github.com/salemkai35/RAG_2026.git /opt/contrats-rag && cd /opt/contrats-rag
+sudo ./deploy.sh
 ```
-Déploiement non interactif avec tous les réglages de la topologie. Remplacez les trois noms
-de modèles par ceux lus dans `ollama list` :
-```bash
-O=http://172.21.36.55:11434/v1
-sudo LLM_BASE_URL=$O LLM_MODEL='<qwen 27B>' \
-     EMBEDDING_BASE_URL=$O EMBEDDING_MODEL='<qwen3-embedding 8b>' EMBEDDING_DIM=1024 \
-     EMBEDDING_REQUEST_DIMENSIONS=true EMBEDDING_TRUNCATE=true \
-     EMBEDDING_QUERY_PREFIX='"Instruct: Given a question about a public works contract, retrieve the contract passages that answer it\nQuery: "' \
-     RERANKER_API=none \
-     OCR_ENGINE=vision VISION_BASE_URL=$O VISION_MODEL='<ocria 1.5 4b>' VISION_MAX_SIDE=1800 \
-     AI_ALLOWED_HOSTS=172.21.36.55 OWUI_PORT=3000 WEBUI_URL=http://172.21.99.93:3000 \
-     COMPOSE_PROFILES=ocr OWUI_CONTENT_EXTRACTION_ENGINE=external OWUI_BYPASS_EMBEDDING=true \
-     DEFAULT_CONTRACT_ACCESS=all \
-     ./deploy.sh --non-interactive
+Le dépôt est privé : `git clone` demande l'identifiant GitHub et, comme mot de passe, un
+jeton en lecture seule. On peut aussi utiliser une clé de déploiement (DEPLOIEMENT_GIT.md §4.2).
+
+Déroulé à l'écran :
 ```
-Vous pouvez aussi lancer `sudo ./deploy.sh` et répondre aux questions, puis compléter
-`.env` avec les lignes du §5.4 et lancer `make restart && make check`.
+Serveur Ollama (vide = autre API compatible OpenAI) [http://172.21.36.55:11434] :   ← Entrée
+==> Détection des modèles sur http://172.21.36.55:11434…
+ ✔  Ollama 0.x : <les modèles présents>
+     LLM        : <Qwen 27B>
+     Embeddings : <Qwen3-Embedding 8B> (dimension native 4096 → 1024)
+     OCR        : <OCRia>
+    Utiliser cette configuration ? [O/n]                                              ← Entrée
+Hôtes IA autorisés … [172.21.36.55] · Port [3000] · Données [./data] · Adresse [http://172.21.99.93:3000]   ← Entrée
+```
+L'adresse d'Ollama vient de `config/site.env`, qui est versionné. Pour un autre site,
+modifiez ce fichier, ou lancez `sudo OLLAMA_URL=http://<ip>:11434 ./deploy.sh`. Sans aucune
+question : `sudo ./deploy.sh --non-interactive`.
+
+Choix automatiques (affichés, puis modifiables dans `.env`) :
+
+| Rôle | Règle de choix |
+|---|---|
+| LLM | modèle Qwen le plus gros, hors embeddings et OCR |
+| Embeddings | nom contenant « embed » ; dimension mesurée par un appel réel. Au-delà de 2000, 1024 est demandé à Ollama, avec troncature de secours, préfixe d'instruction Qwen3 et bypass Open WebUI. |
+| OCR | nom contenant « ocr » (sinon « vl » ou « vision »). Active `OCR_ENGINE=vision` et la passerelle `ocr-bridge`. |
+
+Si Ollama est injoignable, `deploy.sh` le dit et passe à la saisie manuelle des modèles.
 
 `deploy.sh` enchaîne alors :
 1. famille RHEL détectée, puis Docker CE installé et activé ;

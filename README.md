@@ -8,12 +8,15 @@
 > copie par archive, HTTPS, pare-feu : [DEPLOIEMENT_UBUNTU.md](DEPLOIEMENT_UBUNTU.md) ·
 > référence de `.env` : [GUIDE_DEPLOIEMENT.md](GUIDE_DEPLOIEMENT.md)
 
-## Démarrage rapide (serveur Ubuntu vierge)
+## Démarrage rapide (serveur Rocky Linux, RHEL, Ubuntu ou Debian vierge)
 
 ```bash
-git clone <url-du-depot-prive> /opt/contrats-rag && cd /opt/contrats-rag
-sudo ./deploy.sh        # installe Docker, crée .env et ses secrets, demande les API des modèles, démarre tout
+sudo git clone https://github.com/salemkai35/RAG_2026.git /opt/contrats-rag && cd /opt/contrats-rag
+sudo ./deploy.sh
 ```
+`deploy.sh` installe Docker, crée `.env` et ses secrets, interroge le serveur Ollama du site
+(`config/site.env` : `http://172.21.36.55:11434`), choisit les modèles (LLM, embeddings, OCR),
+puis construit, démarre et contrôle tout. Il ne reste qu'à confirmer d'un « Entrée ».
 
 Solution locale d'exploitation des contrats de travaux : recherche hybride, consultation et
 analyse, avec sources vérifiables. Elle est construite sur **Open WebUI** (version épinglée,
