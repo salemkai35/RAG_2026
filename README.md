@@ -2,6 +2,8 @@
 
 > 🚀 **Déploiement depuis GitHub** : `git clone … && sudo ./deploy.sh` (voir
 > [DEPLOIEMENT_GIT.md](DEPLOIEMENT_GIT.md)) ·
+> 🖧 **Rocky Linux + serveur Ollama distant (Qwen, OCRia)** :
+> [DEPLOIEMENT_ROCKY_OLLAMA.md](DEPLOIEMENT_ROCKY_OLLAMA.md) ·
 > 📐 architecture : [ARCHITECTURE.md](ARCHITECTURE.md) ·
 > copie par archive, HTTPS, pare-feu : [DEPLOIEMENT_UBUNTU.md](DEPLOIEMENT_UBUNTU.md) ·
 > référence de `.env` : [GUIDE_DEPLOIEMENT.md](GUIDE_DEPLOIEMENT.md)
