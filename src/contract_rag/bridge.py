@@ -156,13 +156,18 @@ def make_handler(settings: Settings):
             started = time.monotonic()
             if self.path.rstrip("/") != "/process":
                 return self._reply(404, {"detail": "introuvable"})
-            token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip().encode()
-            if not expected or not hmac.compare_digest(token, expected):
-                return self._reply(401, {"detail": "clé de la passerelle invalide"})
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
                 length = 0
+            token = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip().encode()
+            if not expected or not hmac.compare_digest(token, expected):
+                # Consommer le corps (borné) avant de répondre : sinon le client, encore en train
+                # d'envoyer, reçoit une remise à zéro de la connexion au lieu du 401.
+                if 0 < length <= max_bytes:
+                    self.rfile.read(length)
+                self.close_connection = True
+                return self._reply(401, {"detail": "clé de la passerelle invalide"})
             if length <= 0:
                 return self._reply(400, {"detail": "corps vide"})
             if length > max_bytes:

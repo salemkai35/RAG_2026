@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Contrats RAG – déploiement en une commande sur un serveur Ubuntu / Debian vierge.
+#  Contrats RAG – déploiement en une commande sur un serveur vierge
+#  (Rocky Linux / RHEL / Alma 9-10, Ubuntu 22.04-24.04, Debian 12).
 #
-#    git clone <depot> contrats-rag && cd contrats-rag
+#    git clone https://github.com/salemkai35/RAG_2026.git && cd RAG_2026
 #    sudo ./deploy.sh
 #
 #  Étapes (toutes idempotentes : le script peut être relancé sans risque) :
@@ -20,6 +21,8 @@
 #                         (LLM_BASE_URL, LLM_MODEL, EMBEDDING_BASE_URL, EMBEDDING_MODEL,
 #                          EMBEDDING_DIM, RERANKER_API, AI_ALLOWED_HOSTS, OWUI_PORT…)
 #    --skip-prereqs       ne pas installer de paquets (Docker déjà présent)
+#  Serveur Ollama : son adresse par défaut est lue dans config/site.env ; les modèles
+#  (LLM, embeddings, OCR) et leurs réglages sont détectés automatiquement.
 #    -h, --help           aide
 #
 #  Le script ne supprime jamais de données : un .env ou un dossier data/ existant est conservé.
@@ -41,7 +44,7 @@ while [ $# -gt 0 ]; do
     --env-file)        ENV_SOURCE="${2:?--env-file attend un chemin}"; shift 2 ;;
     --non-interactive) INTERACTIVE=0; shift ;;
     --skip-prereqs)    SKIP_PREREQS=1; shift ;;
-    -h|--help)         sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)         awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *)                 die "Option inconnue : $1 (voir --help)" ;;
   esac
 done
@@ -116,7 +119,7 @@ install_prereqs_rhel() {
 
 if [ "$SKIP_PREREQS" -eq 0 ]; then
   missing=()
-  for tool in git curl openssl make tar; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
+  for tool in git curl openssl make tar python3; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
   case "$FAMILY" in
     rhel) install_prereqs_rhel ;;
     *)    install_prereqs_debian ;;
@@ -197,7 +200,54 @@ else
 fi
 chmod 600 .env
 
+DETECTED=0
 if [ "$NEW_ENV" -eq 1 ] || [ "$INTERACTIVE" -eq 1 ]; then
+  # --- Serveur Ollama : un seul serveur pour tous les modèles, détectés automatiquement ---
+  # Adresse par défaut : config/site.env (valeur du site, versionnée, non secrète).
+  if [ -z "${OLLAMA_URL:-}" ] && [ -z "$(get_env OLLAMA_URL)" ] && [ -f config/site.env ]; then
+    site_ollama="$(awk -F= '$1 == "OLLAMA_URL" { sub(/^[^=]*=/, ""); print; exit }' config/site.env)"
+    [ -n "$site_ollama" ] && set_env OLLAMA_URL "$site_ollama"
+  fi
+  [ "$INTERACTIVE" -eq 1 ] && echo "    Entrée = garder la valeur proposée."
+  ask OLLAMA_URL "Serveur Ollama (vide = autre API compatible OpenAI)"
+  OLLAMA="$(get_env OLLAMA_URL)"; OLLAMA="${OLLAMA%/}"; OLLAMA="${OLLAMA%/v1}"
+  if [ -n "$OLLAMA" ] && [ "$NEW_ENV" -eq 1 ]; then
+    log "Détection des modèles sur $OLLAMA…"
+    if det="$(python3 scripts/ollama-detect.py "$OLLAMA" 2>&1)"; then
+      dval() { printf '%s\n' "$det" | awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }'; }
+      # Valeur détectée, sauf si l'exploitant l'a fixée dans l'environnement.
+      put() { [ -n "${!1:-}" ] || set_env "$1" "$2"; }
+      for k in LLM_MODEL EMBEDDING_MODEL EMBEDDING_DIM EMBEDDING_REQUEST_DIMENSIONS EMBEDDING_TRUNCATE \
+               EMBEDDING_QUERY_PREFIX EMBEDDING_DOCUMENT_PREFIX OWUI_BYPASS_EMBEDDING; do
+        printf '%s\n' "$det" | grep -q "^$k=" && put "$k" "$(dval "$k")"
+      done
+      put LLM_BASE_URL "$OLLAMA/v1"
+      put EMBEDDING_BASE_URL "$OLLAMA/v1"
+      put RERANKER_API none
+      if [ -n "$(dval VISION_MODEL)" ]; then
+        put OCR_ENGINE vision
+        put VISION_BASE_URL "$OLLAMA/v1"
+        put VISION_MODEL "$(dval VISION_MODEL)"
+        put COMPOSE_PROFILES ocr                     # passerelle OCR pour les scans du chat
+        put OWUI_CONTENT_EXTRACTION_ENGINE external
+      fi
+      ok "Ollama $(dval OLLAMA_VERSION) : $(printf '%s' "$(dval OLLAMA_MODELS)" | tr ',' ' ')"
+      echo "     LLM        : $(get_env LLM_MODEL)"
+      echo "     Embeddings : $(get_env EMBEDDING_MODEL) (dimension native $(dval EMBEDDING_NATIVE_DIM) → $(get_env EMBEDDING_DIM))"
+      echo "     OCR        : $( [ "$(get_env OCR_ENGINE)" = vision ] && get_env VISION_MODEL || echo "tesseract (aucun modèle OCR trouvé)")"
+      [ -n "$(dval AVERTISSEMENT)" ] && warn "$(dval AVERTISSEMENT)"
+      [ -n "$(get_env LLM_MODEL)" ] && [ -n "$(get_env EMBEDDING_MODEL)" ] && DETECTED=1
+      if [ "$DETECTED" -eq 1 ] && [ "$INTERACTIVE" -eq 1 ]; then
+        read -r -p "    Utiliser cette configuration ? [O/n] " answer < /dev/tty || answer=""
+        case "${answer:-o}" in [nN]*) DETECTED=0 ;; esac
+      fi
+    else
+      warn "Détection impossible : ${det:-Ollama injoignable}. Saisie manuelle."
+    fi
+  fi
+fi
+
+if { [ "$NEW_ENV" -eq 1 ] || [ "$INTERACTIVE" -eq 1 ]; } && [ "$DETECTED" -eq 0 ]; then
   if [ "$INTERACTIVE" -eq 1 ]; then
     echo "    Adresses des API internes de modèles (format OpenAI, avec /v1)."
     echo "    Entrée = garder la valeur proposée. Détails : docs/CONNEXION_MODELES.md"
@@ -219,7 +269,10 @@ if [ "$NEW_ENV" -eq 1 ] || [ "$INTERACTIVE" -eq 1 ]; then
     ask RERANKER_BASE_URL "URL du reranker"
     ask RERANKER_MODEL    "Nom du modèle de reranking"
   fi
-  # Liste blanche par défaut : les hôtes des URL saisies.
+fi
+
+if [ "$NEW_ENV" -eq 1 ] || [ "$INTERACTIVE" -eq 1 ]; then
+  # Liste blanche par défaut : les hôtes des URL saisies ou détectées.
   hosts="$(for v in LLM_BASE_URL EMBEDDING_BASE_URL RERANKER_BASE_URL VISION_BASE_URL; do
              [ "$v" = RERANKER_BASE_URL ] && [ "$(get_env RERANKER_API)" = "none" ] && continue
              u="$(get_env "$v")"
