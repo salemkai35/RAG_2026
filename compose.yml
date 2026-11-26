@@ -16,6 +16,8 @@ x-crag-models: &crag-models
   CRAG_EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
   CRAG_EMBEDDING_QUERY_PREFIX: ${EMBEDDING_QUERY_PREFIX:-}
   CRAG_EMBEDDING_DOCUMENT_PREFIX: ${EMBEDDING_DOCUMENT_PREFIX:-}
+  CRAG_EMBEDDING_REQUEST_DIMENSIONS: ${EMBEDDING_REQUEST_DIMENSIONS:-false}
+  CRAG_EMBEDDING_TRUNCATE: ${EMBEDDING_TRUNCATE:-false}
   CRAG_RERANKER_API: ${RERANKER_API:-none}
   CRAG_RERANKER_BASE_URL: ${RERANKER_BASE_URL:-}
   CRAG_RERANKER_API_KEY: ${RERANKER_API_KEY:-}
@@ -25,6 +27,7 @@ x-crag-models: &crag-models
   CRAG_VISION_BASE_URL: ${VISION_BASE_URL:-}
   CRAG_VISION_API_KEY: ${VISION_API_KEY:-}
   CRAG_VISION_MODEL: ${VISION_MODEL:-}
+  CRAG_VISION_MAX_SIDE: ${VISION_MAX_SIDE:-1800}
   CRAG_ALLOWED_HOSTS: ${AI_ALLOWED_HOSTS:-}
   CRAG_VERIFY_TLS: ${AI_VERIFY_TLS:-true}
   CRAG_DEFAULT_ACCESS: ${DEFAULT_CONTRACT_ACCESS:-none}
@@ -96,6 +99,11 @@ services:
       RAG_EXTERNAL_RERANKER_URL: ${OWUI_EXTERNAL_RERANKER_URL:-}
       RAG_EXTERNAL_RERANKER_API_KEY: ${RERANKER_API_KEY:-}
       RAG_RERANKING_MODEL: ${OWUI_RERANKING_MODEL:-}
+      # --- Extraction des fichiers déposés dans le chat (passerelle OCR optionnelle) ---
+      CONTENT_EXTRACTION_ENGINE: ${OWUI_CONTENT_EXTRACTION_ENGINE:-}
+      EXTERNAL_DOCUMENT_LOADER_URL: ${OWUI_EXTERNAL_LOADER_URL:-http://ocr-bridge:8090}
+      EXTERNAL_DOCUMENT_LOADER_API_KEY: ${OCR_BRIDGE_API_KEY:-}
+      BYPASS_EMBEDDING_AND_RETRIEVAL: ${OWUI_BYPASS_EMBEDDING:-false}
       # --- Fonctionnement hors Internet / pas de télémétrie ---
       OFFLINE_MODE: "true"
       HF_HUB_OFFLINE: "1"
@@ -132,3 +140,19 @@ services:
       # Rôle propriétaire du schéma métier : migrations et écritures d'ingestion.
       CRAG_DATABASE_URL: postgresql://contrats_ingest:${CONTRATS_INGEST_PASSWORD}@postgres:5432/contrats
       OWUI_INTERNAL_URL: http://open-webui:8080
+
+  # Passerelle d'extraction pour Open WebUI : PDF scannés et images → OCR (Tesseract ou
+  # modèle Vision, ex. OCRia sur Ollama). Activée par COMPOSE_PROFILES=ocr. Aucun port publié.
+  ocr-bridge:
+    image: contrats-rag/ingest:${APP_VERSION:-0.1.0}
+    profiles: ["ocr"]
+    restart: unless-stopped
+    command: ["ocr-bridge", "--port", "8090"]
+    environment:
+      <<: *crag-models
+      CRAG_BRIDGE_API_KEY: ${OCR_BRIDGE_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

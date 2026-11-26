@@ -46,6 +46,21 @@ def cmd_db(args) -> int:
 
 # --- check ------------------------------------------------------------------------
 
+def _sample_page():
+    """Petite image de test pour l'OCR Vision (texte connu)."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("RGB", (900, 220), "white")
+    draw = ImageDraw.Draw(image)
+    try:
+        font = ImageFont.load_default(size=56)
+    except TypeError:  # Pillow < 10.1
+        font = ImageFont.load_default()
+    draw.text((30, 30), "Contrat IAP-2026-117", fill="black", font=font)
+    draw.text((30, 120), "Montant : 125 000 DA", fill="black", font=font)
+    return image
+
+
 def cmd_check(args) -> int:
     import dataclasses
 
@@ -94,7 +109,10 @@ def cmd_check(args) -> int:
     def check_llm() -> str:
         from .gateways.llm import LLMClient
 
-        answer = LLMClient(settings, retries=1).chat([{"role": "user", "content": "Réponds uniquement : OK"}], max_tokens=8)
+        answer = LLMClient(settings, retries=1).chat([{"role": "user", "content": "Réponds uniquement : OK"}], max_tokens=64)
+        if not answer.strip():
+            raise RuntimeError(f"{settings.llm.model} a répondu vide (modèle « thinking » : désactiver le raisonnement, "
+                               "voir DEPLOIEMENT_ROCKY_OLLAMA.md)")
         return f"{settings.llm.model} @ {settings.llm.base_url} → « {answer.strip()[:30]} »"
 
     def check_embeddings() -> str:
@@ -125,7 +143,12 @@ def cmd_check(args) -> int:
             from .gateways.http import ensure_configured
 
             ensure_configured(settings.vision, settings)
-            return f"Vision {settings.vision.model} @ {settings.vision.base_url}"
+            from .gateways.ocr import VisionOcr
+
+            text = VisionOcr(settings)(_sample_page()).text
+            found = "IAP-2026-117" in text.replace(" ", "")
+            verdict = "lecture exacte" if found else f"lecture approximative : « {text.strip()[:40]} »"
+            return f"Vision {settings.vision.model} @ {settings.vision.base_url} → {verdict}"
         return "désactivé (OCR_ENGINE=none)"
 
     record("Base contrats", check_db)
@@ -394,14 +417,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--api-key")
     p.add_argument("--dir")
     p.set_defaults(func=cmd_owui)
+
+    p = sub.add_parser("ocr-bridge", help="passerelle d'extraction (PDF scannés, images) pour Open WebUI")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=8090)
+    p.set_defaults(func=cmd_ocr_bridge)
     return parser
+
+
+def cmd_ocr_bridge(args) -> int:
+    from .bridge import serve
+
+    logging.getLogger("contract_rag").setLevel(logging.INFO)
+    serve(args.host, args.port)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING,
-                        format="%(levelname)s %(name)s: %(message)s")
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if args.command == "contracts" and args.action == "import" and not args.file:
         parser.error("contracts import : fichier CSV requis")
     if args.command == "access" and args.action in ("grant", "revoke") and not args.principal:

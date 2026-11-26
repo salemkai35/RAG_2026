@@ -33,10 +33,12 @@ command -v docker >/dev/null 2>&1 || die "Docker n'est pas installé."
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 est requis (commande 'docker compose')."
 docker info >/dev/null 2>&1 || die "Impossible de joindre le démon Docker (droits ? sudo ?)."
 
+SECRETS="POSTGRES_SUPERUSER_PASSWORD OWUI_DB_PASSWORD CONTRATS_INGEST_PASSWORD CONTRATS_APP_PASSWORD WEBUI_SECRET_KEY OCR_BRIDGE_API_KEY"
+
 # --- 1. Configuration --------------------------------------------------------
 if [ ! -f .env ]; then
   cp .env.example .env
-  for var in POSTGRES_SUPERUSER_PASSWORD OWUI_DB_PASSWORD CONTRATS_INGEST_PASSWORD CONTRATS_APP_PASSWORD WEBUI_SECRET_KEY; do
+  for var in $SECRETS; do
     sed -i "s|^${var}=.*|${var}=$(gen_secret)|" .env
   done
   chmod 600 .env
@@ -45,6 +47,16 @@ if [ ! -f .env ]; then
   warn "dans .env (voir docs/CONNEXION_MODELES.md), puis relancez : ./scripts/install.sh"
   exit 0
 fi
+
+# Secrets ajoutés par une version plus récente (ex. OCR_BRIDGE_API_KEY) : générés s'ils manquent.
+for var in $SECRETS; do
+  if ! grep -q "^${var}=" .env; then
+    printf '%s=%s
+' "$var" "$(gen_secret)" >> .env; log "Secret $var ajouté à .env."
+  elif grep -q "^${var}=\(change-me\)\?$" .env && [ "$var" = OCR_BRIDGE_API_KEY ]; then
+    sed -i "s|^${var}=.*|${var}=$(gen_secret)|" .env; log "Secret $var généré."
+  fi
+done
 
 grep -q '=change-me$' .env && die "Des secrets valent encore 'change-me' dans .env."
 set -a; . ./.env; set +a
@@ -81,6 +93,9 @@ docker compose run --rm ingest db upgrade
 
 log "Démarrage d'Open WebUI…"
 docker compose up -d open-webui
+case ",${COMPOSE_PROFILES:-}," in
+  *,ocr,*) log "Démarrage de la passerelle d'extraction (ocr-bridge)…"; docker compose up -d ocr-bridge ;;
+esac
 
 log "Contrôle des endpoints modèles…"
 docker compose run --rm ingest check || warn "Certains contrôles ont échoué : vérifiez .env puis 'make check'."

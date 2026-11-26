@@ -43,9 +43,10 @@ while IFS= read -r f; do
 done <<< "$files"
 
 # 2. Contenu : secrets dans les lignes ajoutées.
-check() {  # check "description" "regex"
+check() {  # check "description" "regex" ["regex des faux positifs à ignorer"]
   local hits
-  hits=$(printf '%s\n' "$added" | grep -E -- "$2" | grep -Ev 'change-me|example|exemple|xxxx|<[^>]*>' | head -3)
+  hits=$(printf '%s\n' "$added" | grep -E -- "$2" | grep -Ev 'change-me|example|exemple|xxxx|<[^>]*>' \
+         | { if [ -n "${3:-}" ]; then grep -Ev -- "$3"; else cat; fi; } | head -3)
   [ -n "$hits" ] && block "$1 :" && printf '      %s\n' "$(printf '%s' "$hits" | cut -c1-80)"
 }
 check "clé API (sk-…)"            'sk-[A-Za-z0-9_-]{20,}'
@@ -53,7 +54,9 @@ check "jeton GitHub"              '(ghp|gho|ghs|ghu)_[A-Za-z0-9]{30,}|github_pat
 check "clé AWS"                   'AKIA[0-9A-Z]{16}'
 check "clé privée"                '-----BEGIN [A-Z ]*PRIVATE KEY-----'
 check "mot de passe / secret en clair" \
-  '(PASSWORD|PASSWD|SECRET|SECRET_KEY|API_KEY|TOKEN)[A-Z_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_.@-]{16,}'
+  '(PASSWORD|PASSWD|SECRET|SECRET_KEY|API_KEY|TOKEN)[A-Z_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9/+_.@-]{16,}' \
+  '(PASSWORD|PASSWD|SECRET|API_KEY|TOKEN)[A-Z_]*["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Z][A-Z0-9_]+([[:space:]"'"'"']|$)'
+# ↑ ignore les valeurs qui ne sont que des NOMS de variables (ex. SECRETS="POSTGRES_PASSWORD …")
 check "URL avec identifiants"     '[a-z]+://[^/:@[:space:]]+:[^/@[:space:]$]{6,}@'
 
 if [ "$fail" -ne 0 ]; then

@@ -62,6 +62,12 @@ class Endpoint:
         return f"CRAG_{self.name.upper()}_"
 
 
+def _prefix(name: str) -> str:
+    r"""Préfixe d'embedding : la séquence littérale « \n » écrite dans .env devient un vrai
+    saut de ligne (instruction Qwen3-Embedding : "Instruct: …\nQuery: ")."""
+    return os.environ.get(name, "").replace("\\n", "\n")
+
+
 def _endpoint(role: str, default_timeout: float) -> Endpoint:
     prefix = f"CRAG_{role}_"
     base_url = _env(prefix + "BASE_URL") or _env("CRAG_AI_BASE_URL")
@@ -90,12 +96,18 @@ class Settings:
     embedding_max_chars: int
     embedding_query_prefix: str
     embedding_document_prefix: str
+    embedding_request_dimensions: bool  # envoyer "dimensions" (modèles Matryoshka : Qwen3-Embedding…)
+    embedding_truncate: bool  # tronquer + renormaliser un vecteur plus long que embedding_dim
     reranker_api: str  # cohere | tei | none
 
     ocr_engine: str  # tesseract | vision | none
     ocr_languages: str
     ocr_min_chars: int
     ocr_dpi: int
+    vision_max_side: int  # côté maximal (px) de l'image envoyée au modèle Vision
+
+    bridge_api_key: str | None
+    bridge_max_mb: int
 
     chunk_max_chars: int
     chunk_overlap_chars: int
@@ -128,13 +140,18 @@ class Settings:
             embedding_dim=_int("CRAG_EMBEDDING_DIM", 1024),
             embedding_batch_size=_int("CRAG_EMBEDDING_BATCH_SIZE", 32),
             embedding_max_chars=_int("CRAG_EMBEDDING_MAX_CHARS", 6000),
-            embedding_query_prefix=os.environ.get("CRAG_EMBEDDING_QUERY_PREFIX", ""),
-            embedding_document_prefix=os.environ.get("CRAG_EMBEDDING_DOCUMENT_PREFIX", ""),
+            embedding_query_prefix=_prefix("CRAG_EMBEDDING_QUERY_PREFIX"),
+            embedding_document_prefix=_prefix("CRAG_EMBEDDING_DOCUMENT_PREFIX"),
+            embedding_request_dimensions=_bool("CRAG_EMBEDDING_REQUEST_DIMENSIONS", False),
+            embedding_truncate=_bool("CRAG_EMBEDDING_TRUNCATE", False),
             reranker_api=(_env("CRAG_RERANKER_API", "none") or "none").lower(),
             ocr_engine=(_env("CRAG_OCR_ENGINE", "tesseract") or "tesseract").lower(),
             ocr_languages=_env("CRAG_OCR_LANGUAGES", "fra+eng") or "fra+eng",
             ocr_min_chars=_int("CRAG_OCR_MIN_CHARS", 40),
             ocr_dpi=_int("CRAG_OCR_DPI", 300),
+            vision_max_side=_int("CRAG_VISION_MAX_SIDE", 1800),
+            bridge_api_key=_env("CRAG_BRIDGE_API_KEY"),
+            bridge_max_mb=_int("CRAG_BRIDGE_MAX_MB", 100),
             chunk_max_chars=_int("CRAG_CHUNK_MAX_CHARS", 1800),
             chunk_overlap_chars=_int("CRAG_CHUNK_OVERLAP_CHARS", 200),
             retrieval_top_k=_int("CRAG_RETRIEVAL_TOP_K", 8),

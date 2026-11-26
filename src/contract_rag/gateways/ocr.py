@@ -75,8 +75,16 @@ class VisionOcr:
 
     def __init__(self, settings: Settings):
         self.llm = LLMClient(settings, endpoint=settings.vision)
+        self.max_side = settings.vision_max_side
 
     def __call__(self, image) -> OcrResult:
+        # Une page A4 rendue à 300 dpi fait ~2500×3500 px : trop de jetons image pour un
+        # petit modèle Vision (OCRia, Qwen-VL…). On réduit en gardant les proportions.
+        if self.max_side and max(image.size) > self.max_side:
+            image = image.copy()
+            image.thumbnail((self.max_side, self.max_side))
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         data_uri = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()

@@ -60,12 +60,21 @@ log "1/5 Vérification du système"
 [ -r /etc/os-release ] || die "/etc/os-release introuvable : système non pris en charge."
 . /etc/os-release
 case "${ID:-}:${ID_LIKE:-}" in
-  ubuntu:*|debian:*|*:*debian*|*:*ubuntu*) ok "Système : ${PRETTY_NAME:-$ID}" ;;
+  ubuntu:*|debian:*|*:*debian*|*:*ubuntu*)                FAMILY=debian ;;
+  rocky:*|rhel:*|almalinux:*|centos:*|ol:*|*:*rhel*|*:*fedora*) FAMILY=rhel ;;
+  *)                                                       FAMILY=unknown ;;
+esac
+case "$FAMILY" in
+  debian|rhel) ok "Système : ${PRETTY_NAME:-$ID} (famille $FAMILY)" ;;
   *) warn "Système ${PRETTY_NAME:-inconnu} non testé : l'installation des paquets peut échouer." ;;
 esac
 [ "$(uname -m)" = "x86_64" ] || warn "Architecture $(uname -m) non testée (images prévues pour x86_64)."
 mem_gb=$(awk '/MemTotal/ {printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)
-[ "${mem_gb:-0}" -ge 7 ] && ok "Mémoire : ${mem_gb} Go" || warn "Mémoire : ${mem_gb} Go (8 Go minimum conseillés)."
+mem_mb=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0)
+if [ "${mem_mb:-0}" -ge 7000 ]; then ok "Mémoire : ${mem_gb} Go"
+elif [ "${mem_mb:-0}" -ge 3400 ]; then
+  warn "Mémoire : $((mem_mb / 1024)) Go — fonctionne pour quelques utilisateurs simultanés (8 Go conseillés)."
+else warn "Mémoire : ${mem_mb} Mo — insuffisant (4 Go minimum, 8 Go conseillés)."; fi
 free_gb=$(df -Pk "$PROJECT_DIR" | awk 'NR==2 {printf "%d", $4/1024/1024}')
 [ "${free_gb:-0}" -ge 15 ] && ok "Disque libre : ${free_gb} Go" || warn "Disque libre : ${free_gb} Go (15 Go minimum)."
 
@@ -76,21 +85,42 @@ apt_install() {
   $SUDO apt-get update -y
   $SUDO apt-get install -y --no-install-recommends "$@"
 }
-if [ "$SKIP_PREREQS" -eq 0 ]; then
-  command -v apt-get >/dev/null 2>&1 || die "apt-get absent : installez Docker manuellement puis relancez avec --skip-prereqs."
-  missing=()
-  for tool in git curl openssl make; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
-  [ ${#missing[@]} -eq 0 ] || apt_install ca-certificates "${missing[@]}"
+dnf_install() { $SUDO dnf install -y "$@"; }
 
+install_prereqs_debian() {
+  command -v apt-get >/dev/null 2>&1 || die "apt-get absent : installez Docker manuellement puis relancez avec --skip-prereqs."
+  [ ${#missing[@]} -eq 0 ] || apt_install ca-certificates "${missing[@]}"
   if ! command -v docker >/dev/null 2>&1; then
     log "Installation de Docker Engine (paquets de la distribution)…"
     apt_install docker.io
   fi
   if ! docker compose version >/dev/null 2>&1; then
     log "Installation du plugin Docker Compose v2…"
-    apt_install docker-compose-v2 2>/dev/null || apt_install docker-compose-plugin 2>/dev/null \
-      || die "Compose v2 introuvable dans les dépôts : installez 'docker-compose-plugin' (dépôt Docker officiel ou miroir interne)."
+    apt_install docker-compose-v2 2>/dev/null || apt_install docker-compose-plugin 2>/dev/null       || die "Compose v2 introuvable dans les dépôts : installez 'docker-compose-plugin' (dépôt Docker officiel ou miroir interne)."
   fi
+}
+
+# Rocky / RHEL / Alma : Docker CE vient du dépôt officiel Docker (« rhel »), ou d'un miroir
+# interne si DOCKER_REPO_URL est défini. Podman (installé par défaut) entre en conflit avec
+# containerd.io : --allowerasing le remplace proprement.
+install_prereqs_rhel() {
+  command -v dnf >/dev/null 2>&1 || die "dnf absent : installez Docker manuellement puis relancez avec --skip-prereqs."
+  [ ${#missing[@]} -eq 0 ] || dnf_install ca-certificates "${missing[@]}"
+  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    log "Installation de Docker CE (dépôt ${DOCKER_REPO_URL:-https://download.docker.com/linux/rhel/docker-ce.repo})…"
+    dnf_install dnf-plugins-core
+    $SUDO dnf config-manager --add-repo "${DOCKER_REPO_URL:-https://download.docker.com/linux/rhel/docker-ce.repo}"       2>/dev/null || $SUDO dnf config-manager addrepo --from-repofile="${DOCKER_REPO_URL:-https://download.docker.com/linux/rhel/docker-ce.repo}"       || die "Impossible d'ajouter le dépôt Docker (accès Internet ? sinon DOCKER_REPO_URL=<miroir interne>)."
+    $SUDO dnf install -y --allowerasing docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin       || die "Installation de Docker CE impossible (voir DEPLOIEMENT_ROCKY_OLLAMA.md §3.2)."
+  fi
+}
+
+if [ "$SKIP_PREREQS" -eq 0 ]; then
+  missing=()
+  for tool in git curl openssl make tar; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
+  case "$FAMILY" in
+    rhel) install_prereqs_rhel ;;
+    *)    install_prereqs_debian ;;
+  esac
 fi
 command -v docker >/dev/null 2>&1 || die "Docker n'est pas installé."
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 est requis."
@@ -179,6 +209,12 @@ if [ "$NEW_ENV" -eq 1 ] || [ "$INTERACTIVE" -eq 1 ]; then
   ask EMBEDDING_MODEL    "Nom du modèle d'embeddings"
   ask EMBEDDING_DIM      "Dimension des embeddings (1024 bge-m3, 768 nomic)"
   ask RERANKER_API       "Reranker : cohere | tei | none"
+  ask OCR_ENGINE         "OCR des scans : tesseract (local) | vision (modèle) | none"
+  if [ "$(get_env OCR_ENGINE)" = "vision" ]; then
+    [ -n "$(get_env VISION_BASE_URL)" ] || set_env VISION_BASE_URL "$(get_env LLM_BASE_URL)"
+    ask VISION_BASE_URL  "URL du modèle Vision / OCR"
+    ask VISION_MODEL     "Nom du modèle Vision / OCR"
+  fi
   if [ "$(get_env RERANKER_API)" != "none" ]; then
     ask RERANKER_BASE_URL "URL du reranker"
     ask RERANKER_MODEL    "Nom du modèle de reranking"
@@ -229,6 +265,30 @@ INBOX_VAL="$(get_env INBOX_DIR)";     INBOX_VAL="${INBOX_VAL:-./inbox}"
 $SUDO mkdir -p "$DATA_ROOT_VAL"/{postgres,open-webui,contrats} "$INBOX_VAL" exports backups
 [ "$REAL_USER" != "root" ] && $SUDO chown "$REAL_USER" "$INBOX_VAL" exports backups 2>/dev/null || true
 ok "Données : $DATA_ROOT_VAL (bases, fichiers) · dépôt des documents : $INBOX_VAL"
+# SELinux (Rocky/RHEL, mode Enforcing) : les dossiers montés dans les conteneurs doivent
+# porter le type container_file_t, sinon PostgreSQL et Open WebUI ne peuvent pas y écrire.
+if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+  for d in "$DATA_ROOT_VAL" "$INBOX_VAL" exports backups docker/postgres/init certs; do
+    [ -e "$d" ] || continue
+    if command -v semanage >/dev/null 2>&1; then
+      abs="$(cd "$d" && pwd)"
+      $SUDO semanage fcontext -a -t container_file_t "${abs}(/.*)?" 2>/dev/null         || $SUDO semanage fcontext -m -t container_file_t "${abs}(/.*)?" 2>/dev/null || true
+      $SUDO restorecon -R "$abs" >/dev/null 2>&1 || true
+    else
+      $SUDO chcon -R -t container_file_t "$d" 2>/dev/null || true
+    fi
+  done
+  ok "SELinux Enforcing : dossiers montés étiquetés container_file_t"
+fi
+# Pare-feu (firewalld) : ouverture du port de l'interface uniquement.
+if command -v firewall-cmd >/dev/null 2>&1 && $SUDO firewall-cmd --state >/dev/null 2>&1; then
+  port="$(get_env OWUI_PORT)"; port="${port:-3000}"
+  if ! $SUDO firewall-cmd --query-port="${port}/tcp" >/dev/null 2>&1; then
+    $SUDO firewall-cmd --permanent --add-port="${port}/tcp" >/dev/null && $SUDO firewall-cmd --reload >/dev/null       && ok "firewalld : port ${port}/tcp ouvert"
+  else
+    ok "firewalld : port ${port}/tcp déjà ouvert"
+  fi
+fi
 # Validation de compose.yml avec ce .env ; le réseau privé de l'instance est créé par
 # 'docker compose up' (PostgreSQL n'y est joignable que par les conteneurs).
 $DOCKER_SUDO docker compose config -q || die "compose.yml invalide avec ce .env."
